@@ -30,7 +30,8 @@
 
 #include "singleton.h"
 
-namespace utils {
+namespace utils
+{
 
 class TimerQueue;
 class ITimer;
@@ -41,26 +42,23 @@ using TimerUs = std::chrono::microseconds;
 using TimerSec = std::chrono::seconds;
 using TimerHandle = std::shared_ptr<ITimer>;
 using TimerClock = std::chrono::steady_clock;
-using TimerFunc = std::function<void(ITimer*)>;
+using TimerFunc = std::function<void(ITimer *)>;
 using TimePoint = std::chrono::steady_clock::time_point;
 using TimerDuration = std::chrono::steady_clock::duration;
 
 /// Less timepoint of timer in the front of TimerQueue
-struct TimerHandleComp
-{
-    bool operator() (
-        const TimerHandle& lhs, const TimerHandle& rhs) const;
+struct TimerHandleComp {
+    bool operator()(const TimerHandle &lhs, const TimerHandle &rhs) const;
 };
 
 /// Abstract timer
-class ITimer
-  : public std::enable_shared_from_this<ITimer>
+class ITimer : public std::enable_shared_from_this<ITimer>
 {
   public:
     ITimer(bool safe = true) : safe_(safe) {}
     virtual ~ITimer() {}
     virtual void TimerCallback() = 0;
-    virtual const TimePoint& TimerPoint() const = 0;
+    virtual const TimePoint &TimerPoint() const = 0;
     bool Safe() const { return safe_; }
 
   private:
@@ -71,10 +69,11 @@ class ITimer
 /// Timer container as a singleton managered all user timers
 class TimerQueue final : public Singleton<TimerQueue>
 {
-  friend Singleton<TimerQueue>;
+    friend Singleton<TimerQueue>;
+
   public:
     /// User implement ITimer and shared TimerHandle, so it is safety
-    bool AddTimer(const TimerHandle& handle);
+    bool AddTimer(const TimerHandle &handle);
 
     /// User may use lambda as TimerFunc, we need to consider safety issues
     /// about lifetime of captured variables by lambda.
@@ -87,10 +86,10 @@ class TimerQueue final : public Singleton<TimerQueue>
     /// "safe" is false:
     ///    If user does't hold TimerHandle, "TimerFunc" will be always invoked
     ///    when its timer expired.
-    ///    In some scenarios, ensure the lambda is enclosed and does not capture variables.
-    ///    then we use it conveniently. however use it carefully!
+    ///    In some scenarios, ensure the lambda is enclosed and does not capture
+    ///    variables. then we use it conveniently. however use it carefully!
     TimerHandle AddTimer(TimerNs dtn, TimerFunc func, bool safe = true);
-    TimerHandle AddTimer(TimePoint& tp, TimerFunc func, bool safe = true);
+    TimerHandle AddTimer(TimePoint &tp, TimerFunc func, bool safe = true);
 
   private:
     TimerQueue();
@@ -107,4 +106,4 @@ class TimerQueue final : public Singleton<TimerQueue>
     bool quit_ = false;
 };
 
-}
+} // namespace utils

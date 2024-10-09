@@ -21,24 +21,25 @@
 
 #include "timerqueue.h"
 
-namespace utils {
+namespace utils
+{
 
 class Timer : public ITimer
 {
   public:
     Timer(TimerNs dtn, TimerFunc func, bool safe);
-    Timer(TimePoint& tp, TimerFunc func, bool safe);
+    Timer(TimePoint &tp, TimerFunc func, bool safe);
     virtual ~Timer();
     virtual void TimerCallback() override { func_(this); }
-    virtual const TimePoint& TimerPoint() const override { return tp_; };
+    virtual const TimePoint &TimerPoint() const override { return tp_; };
 
   private:
     TimePoint tp_;
     TimerFunc func_;
 };
 
-bool TimerHandleComp::operator() (
-    const TimerHandle& lhs, const TimerHandle& rhs) const
+bool TimerHandleComp::operator()(const TimerHandle &lhs,
+                                 const TimerHandle &rhs) const
 {
     if (lhs != nullptr && rhs != nullptr) {
         return lhs->TimerPoint() < rhs->TimerPoint();
@@ -48,28 +49,23 @@ bool TimerHandleComp::operator() (
 }
 
 Timer::Timer(TimerNs dtn, TimerFunc func, bool safe)
-  : ITimer(safe), tp_(TimerClock::now()+dtn), func_(func)
+    : ITimer(safe), tp_(TimerClock::now() + dtn), func_(func)
 {
 }
 
-Timer::Timer(TimePoint& tp, TimerFunc func, bool safe)
-  : ITimer(safe), tp_(tp), func_(func)
+Timer::Timer(TimePoint &tp, TimerFunc func, bool safe)
+    : ITimer(safe), tp_(tp), func_(func)
 {
 }
 
-Timer::~Timer()
-{
-}
+Timer::~Timer() {}
 
 TimerQueue::TimerQueue()
-  : thread_(new std::thread(&TimerQueue::StartRoutine, this))
+    : thread_(new std::thread(&TimerQueue::StartRoutine, this))
 {
 }
 
-TimerQueue::~TimerQueue()
-{
-    Stop();
-}
+TimerQueue::~TimerQueue() { Stop(); }
 
 void TimerQueue::Stop()
 {
@@ -84,10 +80,10 @@ void TimerQueue::Stop()
     }
 }
 
-bool TimerQueue::AddTimer(const TimerHandle& handle)
+bool TimerQueue::AddTimer(const TimerHandle &handle)
 {
     if (handle == nullptr) {
-	return false;
+        return false;
     }
     if (handle->TimerPoint() < TimerClock::now()) {
         return false;
@@ -101,7 +97,7 @@ bool TimerQueue::AddTimer(const TimerHandle& handle)
     return true;
 }
 
-TimerHandle TimerQueue::AddTimer(TimePoint& tp, TimerFunc func, bool safe)
+TimerHandle TimerQueue::AddTimer(TimePoint &tp, TimerFunc func, bool safe)
 {
     if (tp < TimerClock::now()) {
         return TimerHandle();
@@ -122,10 +118,7 @@ TimerHandle TimerQueue::AddTimer(TimerNs dtn, TimerFunc func, bool safe)
     return handle;
 }
 
-void TimerQueue::StartRoutine()
-{
-    while (ThreadLoop());
-}
+void TimerQueue::StartRoutine() { while (ThreadLoop()); }
 
 bool TimerQueue::ThreadLoop()
 {
@@ -159,9 +152,9 @@ bool TimerQueue::ThreadLoop()
         /// User need hold TimerHanle for safety!
         if (!hdl->Safe() || !hdl.unique()) {
             hdl->TimerCallback();
-        } 
+        }
     }
     return true;
 }
 
-}
+} // namespace utils

@@ -32,25 +32,22 @@ void nowtime(const std::string &str)
 {
     auto now = std::chrono::system_clock::now();
     std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
-    std::tm* now_tm = std::localtime(&now_time_t);
-    std::cout << str
-              << std::put_time(now_tm, "%H:%M:%S")
-              << std::endl;
+    std::tm *now_tm = std::localtime(&now_time_t);
+    std::cout << str << std::put_time(now_tm, "%H:%M:%S") << std::endl;
 }
 
 class SampleTimer : public ITimer
 {
   public:
     SampleTimer(int sec)
-        : str_("The time after "+std::to_string(sec)+" seconds: ")
-        , tp_(std::chrono::steady_clock::now() + std::chrono::seconds(sec)) {}
+        : str_("The time after " + std::to_string(sec) + " seconds: "),
+          tp_(std::chrono::steady_clock::now() + std::chrono::seconds(sec))
+    {
+    }
     virtual ~SampleTimer() {}
-    virtual void TimerCallback() override {
-	nowtime(str_);
-    }
-    virtual const TimePoint& TimerPoint() const override {
-        return tp_;
-    }
+    virtual void TimerCallback() override { nowtime(str_); }
+    virtual const TimePoint &TimerPoint() const override { return tp_; }
+
   private:
     std::string str_;
     TimePoint tp_;
@@ -61,24 +58,16 @@ int main(int argc, char **argv)
     using std::chrono::duration;
     using std::chrono::duration_cast;
 
-    auto cb1 = [](ITimer* timer) {
-	nowtime("The time after 1 second:  ");
-    };
-
-    auto cb2 = [](ITimer* timer) {
-        nowtime("The time after 2 seconds: ");
-    };
-
-    auto cb3 = [](ITimer* timer) {
-        nowtime("The time after 3 seconds: ");
-    };
+    auto cb1 = [](ITimer *timer) { nowtime("The time after 1 second:  "); };
+    auto cb2 = [](ITimer *timer) { nowtime("The time after 2 seconds: "); };
+    auto cb3 = [](ITimer *timer) { nowtime("The time after 3 seconds: "); };
 
     nowtime("Current time:             ");
     TimerNs dtn1 = duration_cast<TimerNs>(TimerSec(1));
     TimerNs dtn2 = duration_cast<TimerNs>(TimerSec(2));
     TimerNs dtn3 = duration_cast<TimerNs>(TimerSec(3));
     TimerHandle hdl = std::make_shared<SampleTimer>(4);
-    auto& tq = TimerQueue::GetInstance();
+    auto &tq = TimerQueue::GetInstance();
     auto th1 = tq.AddTimer(dtn1, cb1);
     auto th2 = tq.AddTimer(dtn2, cb2);
     auto th3 = tq.AddTimer(dtn3, cb3);
@@ -87,5 +76,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-
-
