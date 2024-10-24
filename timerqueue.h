@@ -23,16 +23,19 @@
 
 #include <set>
 #include <mutex>
+#include <future>
 #include <chrono>
 #include <thread>
+#if __cplusplus >= 201703L
+#include <type_traits>
+#endif
 #include <functional>
 #include <condition_variable>
-
 #include "singleton.h"
 
 namespace utils
 {
-
+/// @brief Forward declaration
 class TimerQueue;
 class ITimer;
 
@@ -46,50 +49,93 @@ using TimerFunc = std::function<void(ITimer *)>;
 using TimePoint = std::chrono::steady_clock::time_point;
 using TimerDuration = std::chrono::steady_clock::duration;
 
-/// Less timepoint of timer in the front of TimerQueue
-struct TimerHandleComp {
-    bool operator()(const TimerHandle &lhs, const TimerHandle &rhs) const;
-};
+template <class F, class... Args>
+#if __cplusplus >= 201703L
+using Result = std::invoke_result<F, Args...>;
+#elif __cplusplus >= 201103L
+using Result = std::result_of<F(Args...)>;
+#else
+#error "c++11 or higher version must be supported"
+#endif
+template <class F, class... Args>
+using ResultType = typename Result<F, Args...>::type;
 
-/// Abstract timer
+/// @brief Abstract timer class
 class ITimer : public std::enable_shared_from_this<ITimer>
 {
   public:
-    ITimer(bool safe = true) : safe_(safe) {}
-    virtual ~ITimer() {}
+    /// @brief Callback on time out
     virtual void TimerCallback() = 0;
-    virtual const TimePoint &TimerPoint() const = 0;
-    bool Safe() const { return safe_; }
 
-  private:
-    bool safe_;
-    TimerFunc func_ = &ITimer::TimerCallback;
+    /// @brief Get time point
+    /// @return time point
+    virtual const TimePoint &TimerPoint() const = 0;
 };
 
-/// Timer container as a singleton managered all user timers
+/// @brief Comparison for timer sorting.
+struct TimerCompare {
+    bool operator()(const TimerHandle &lhs, const TimerHandle &rhs) const
+    {
+        return lhs->TimerPoint() < rhs->TimerPoint();
+    };
+};
+
+/// @brief Container as a singleton managered all user timers
 class TimerQueue final : public Singleton<TimerQueue>
 {
     friend Singleton<TimerQueue>;
 
   public:
-    /// User implement ITimer and shared TimerHandle, so it is safety
+    /// @brief Add timer that user implemented.
+    /// @param handle reference of timer object.
+    /// @return true if successfully.
     bool AddTimer(const TimerHandle &handle);
 
-    /// User may use lambda as TimerFunc, we need to consider safety issues
-    /// about lifetime of captured variables by lambda.
-    ///
-    /// "safe" is true:
-    ///    We need user hold TimerHandle before timer expired,
-    ///    if not, for safty, timer will be deleted at timepoint of timeout,
-    ///    and "TimerFunc" will not be invoked.
-    ///
-    /// "safe" is false:
-    ///    If user does't hold TimerHandle, "TimerFunc" will be always invoked
-    ///    when its timer expired.
-    ///    In some scenarios, ensure the lambda is enclosed and does not capture
-    ///    variables. then we use it conveniently. however use it carefully!
-    TimerHandle AddTimer(TimerNs dtn, TimerFunc func, bool safe = true);
-    TimerHandle AddTimer(TimePoint &tp, TimerFunc func, bool safe = true);
+    /// @brief Add a timer to "TimerQueue".
+    /// @param dtn duration between "NOW" and time-out
+    /// @param func callback on time out.
+    /// @return timer object handle.
+    TimerHandle AddTimer(TimerNs dtn, TimerFunc func);
+
+    /// @brief Add a timer to "TimerQueue".
+    /// @param tp time point on time out.
+    /// @param func callback on time out.
+    /// @return timer object handle.
+    TimerHandle AddTimer(TimePoint &tp, TimerFunc func);
+
+    /// @brief Remove a timer by handle.
+    /// @param handle "TimerHandle" object ref.
+    /// @return true if success.
+    bool RemoveTimer(const TimerHandle &handle);
+
+    /// @brief Remove all timers which "TimePoint" equals to tp.
+    /// @param tp "TimePoint" object ref.
+    /// @return ture if success.
+    bool RemoveTimer(const TimePoint &tp);
+
+    /// @brief Add a callable object to "TimerQueue"
+    /// @tparam ...Args arguments for callable object
+    /// @tparam T Type of duration or "TimePoint"
+    /// @tparam F Type of callable object
+    /// @param time Duration or "TimePoint"
+    /// @param func Callable object(e.g. function, lambda ...)
+    /// @param ...args Arguments for callable object
+    /// @return future object associated to callable object.
+    ///         Be careful using the future object, if user access "future" by
+    ///         "future::get()" after the timer had removed by "RemoveTimer", it
+    ///         will cause an exception of "Broken promise"
+    template <class T, class F, class... Args>
+    auto AddTimerEx(T &&time, F &&func,
+                    Args &&...args) -> std::future<ResultType<F, Args...>>
+    {
+        auto package =
+            std::make_shared<std::packaged_task<ResultType<F, Args...>()>>(
+                std::bind(std::forward<F>(func), std::forward<Args>(args)...));
+        std::future<ResultType<F, Args...>> res = package->get_future();
+        TimerFunc tf = [package](ITimer *) { (*package)(); };
+        AddTimer(std::forward<T>(time), tf);
+        return res;
+    }
 
   private:
     TimerQueue();
@@ -102,7 +148,7 @@ class TimerQueue final : public Singleton<TimerQueue>
     std::mutex mtx_;
     std::condition_variable cv_;
     std::unique_ptr<std::thread> thread_;
-    std::set<TimerHandle, TimerHandleComp> tq_;
+    std::set<TimerHandle, TimerCompare> tq_;
     bool quit_ = false;
 };
 

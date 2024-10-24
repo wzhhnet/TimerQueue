@@ -27,9 +27,12 @@ namespace utils
 class Timer : public ITimer
 {
   public:
-    Timer(TimerNs dtn, TimerFunc func, bool safe);
-    Timer(TimePoint &tp, TimerFunc func, bool safe);
-    virtual ~Timer();
+    Timer(TimerNs dtn, TimerFunc func)
+        : ITimer(), tp_(TimerClock::now() + dtn), func_(func)
+    {
+    }
+    Timer(TimePoint &tp, TimerFunc func) : ITimer(), tp_(tp), func_(func) {}
+    virtual ~Timer() {}
     virtual void TimerCallback() override { func_(this); }
     virtual const TimePoint &TimerPoint() const override { return tp_; };
 
@@ -37,28 +40,6 @@ class Timer : public ITimer
     TimePoint tp_;
     TimerFunc func_;
 };
-
-bool TimerHandleComp::operator()(const TimerHandle &lhs,
-                                 const TimerHandle &rhs) const
-{
-    if (lhs != nullptr && rhs != nullptr) {
-        return lhs->TimerPoint() < rhs->TimerPoint();
-    } else {
-        return false;
-    }
-}
-
-Timer::Timer(TimerNs dtn, TimerFunc func, bool safe)
-    : ITimer(safe), tp_(TimerClock::now() + dtn), func_(func)
-{
-}
-
-Timer::Timer(TimePoint &tp, TimerFunc func, bool safe)
-    : ITimer(safe), tp_(tp), func_(func)
-{
-}
-
-Timer::~Timer() {}
 
 TimerQueue::TimerQueue()
     : thread_(new std::thread(&TimerQueue::StartRoutine, this))
@@ -88,34 +69,60 @@ bool TimerQueue::AddTimer(const TimerHandle &handle)
     if (handle->TimerPoint() < TimerClock::now()) {
         return false;
     }
+    std::unique_lock<std::mutex> lck(mtx_);
     if (tq_.end() != tq_.find(handle)) {
         return false;
     }
-    std::unique_lock<std::mutex> lck(mtx_);
     tq_.emplace(handle);
     cv_.notify_one();
     return true;
 }
 
-TimerHandle TimerQueue::AddTimer(TimePoint &tp, TimerFunc func, bool safe)
+TimerHandle TimerQueue::AddTimer(TimePoint &tp, TimerFunc func)
 {
     if (tp < TimerClock::now()) {
         return TimerHandle();
     }
-    auto handle = std::make_shared<Timer>(tp, func, safe);
+    auto handle = std::make_shared<Timer>(tp, func);
     std::unique_lock<std::mutex> lck(mtx_);
     tq_.emplace(handle);
     cv_.notify_one();
     return handle;
 }
 
-TimerHandle TimerQueue::AddTimer(TimerNs dtn, TimerFunc func, bool safe)
+TimerHandle TimerQueue::AddTimer(TimerNs dtn, TimerFunc func)
 {
-    auto handle = std::make_shared<Timer>(dtn, func, safe);
+    auto handle = std::make_shared<Timer>(dtn, func);
     std::unique_lock<std::mutex> lck(mtx_);
     tq_.emplace(handle);
     cv_.notify_one();
     return handle;
+}
+
+bool TimerQueue::RemoveTimer(const TimerHandle &handle)
+{
+    std::unique_lock<std::mutex> lck(mtx_);
+    auto it = tq_.find(handle);
+    if (it == tq_.end()) {
+        return false;
+    }
+    tq_.erase(it);
+    return true;
+}
+
+bool TimerQueue::RemoveTimer(const TimePoint &tp)
+{
+    bool rc = false;
+    std::unique_lock<std::mutex> lck(mtx_);
+    auto it = tq_.begin();
+    while (it != tq_.end()) {
+        if (tp == (*it)->TimerPoint()) {
+            it = tq_.erase(it);
+            rc = true;
+        } else
+            it++;
+    }
+    return rc;
 }
 
 void TimerQueue::StartRoutine() { while (ThreadLoop()); }
@@ -149,10 +156,7 @@ bool TimerQueue::ThreadLoop()
         }
     }
     if (hdl != nullptr) {
-        /// User need hold TimerHanle for safety!
-        if (!hdl->Safe() || !hdl.unique()) {
-            hdl->TimerCallback();
-        }
+        hdl->TimerCallback();
     }
     return true;
 }

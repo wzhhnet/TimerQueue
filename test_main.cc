@@ -28,12 +28,14 @@
 
 using namespace utils;
 
-void nowtime(const std::string &str)
+TimePoint nowtime(const std::string &str)
 {
     auto now = std::chrono::system_clock::now();
+    auto steady_now = TimerClock::now();
     std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
     std::tm *now_tm = std::localtime(&now_time_t);
     std::cout << str << std::put_time(now_tm, "%H:%M:%S") << std::endl;
+    return steady_now;
 }
 
 class SampleTimer : public ITimer
@@ -53,6 +55,13 @@ class SampleTimer : public ITimer
     TimePoint tp_;
 };
 
+static int InvokeAfter(int sec)
+{
+    auto str = "The time after " + std::to_string(sec) + " seconds: ";
+    nowtime(str);
+    return sec;
+}
+
 int main(int argc, char **argv)
 {
     using std::chrono::duration;
@@ -62,17 +71,21 @@ int main(int argc, char **argv)
     auto cb2 = [](ITimer *timer) { nowtime("The time after 2 seconds: "); };
     auto cb3 = [](ITimer *timer) { nowtime("The time after 3 seconds: "); };
 
-    nowtime("Current time:             ");
+    auto tp = nowtime("Current time:             ");
     TimerNs dtn1 = duration_cast<TimerNs>(TimerSec(1));
     TimerNs dtn2 = duration_cast<TimerNs>(TimerSec(2));
     TimerNs dtn3 = duration_cast<TimerNs>(TimerSec(3));
     TimerHandle hdl = std::make_shared<SampleTimer>(4);
+    TimerNs dtn5 = duration_cast<TimerNs>(TimerSec(5));
+    tp += TimerSec(6);
     auto &tq = TimerQueue::GetInstance();
     auto th1 = tq.AddTimer(dtn1, cb1);
     auto th2 = tq.AddTimer(dtn2, cb2);
     auto th3 = tq.AddTimer(dtn3, cb3);
     tq.AddTimer(hdl);
-    sleep(5);
-
+    tq.AddTimerEx(dtn5, &InvokeAfter, 5);
+    auto th6 = tq.AddTimerEx(tp, &InvokeAfter, 6);
+    th6.get();
+    // tq.RemoveTimer(hdl);
     return 0;
 }
