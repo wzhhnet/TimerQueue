@@ -90,7 +90,7 @@ TimerHandle TimerQueue::AddTimer(TimePoint &tp, TimerFunc func)
     return handle;
 }
 
-TimerHandle TimerQueue::AddTimer(TimerNs dtn, TimerFunc func)
+TimerHandle TimerQueue::AddTimer(TimerNs &dtn, TimerFunc func)
 {
     auto handle = std::make_shared<Timer>(dtn, func);
     std::unique_lock<std::mutex> lck(mtx_);

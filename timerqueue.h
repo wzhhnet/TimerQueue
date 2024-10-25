@@ -47,7 +47,6 @@ using TimerHandle = std::shared_ptr<ITimer>;
 using TimerClock = std::chrono::steady_clock;
 using TimerFunc = std::function<void(ITimer *)>;
 using TimePoint = std::chrono::steady_clock::time_point;
-using TimerDuration = std::chrono::steady_clock::duration;
 
 template <class F, class... Args>
 #if __cplusplus >= 201703L
@@ -95,7 +94,7 @@ class TimerQueue final : public Singleton<TimerQueue>
     /// @param dtn duration between "NOW" and time-out
     /// @param func callback on time out.
     /// @return timer object handle.
-    TimerHandle AddTimer(TimerNs dtn, TimerFunc func);
+    TimerHandle AddTimer(TimerNs &dtn, TimerFunc func);
 
     /// @brief Add a timer to "TimerQueue".
     /// @param tp time point on time out.
@@ -121,9 +120,9 @@ class TimerQueue final : public Singleton<TimerQueue>
     /// @param func Callable object(e.g. function, lambda ...)
     /// @param ...args Arguments for callable object
     /// @return future object associated to callable object.
-    ///         Be careful using the future object, if user access "future" by
-    ///         "future::get()" after the timer had removed by "RemoveTimer", it
-    ///         will cause an exception of "Broken promise"
+    ///         Be careful with the future object, if user accesses "future" by
+    ///         "future::get()" after removing the timer by "RemoveTimer", it
+    ///         will cause a "Broken promise" exception.
     template <class T, class F, class... Args>
     auto AddTimerEx(T &&time, F &&func,
                     Args &&...args) -> std::future<ResultType<F, Args...>>
