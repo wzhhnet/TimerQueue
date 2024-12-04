@@ -50,14 +50,12 @@ using TimePoint = std::chrono::steady_clock::time_point;
 
 template <class F, class... Args>
 #if __cplusplus >= 201703L
-using Result = std::invoke_result<F, Args...>;
+using ReturnType = typename std::invoke_result<F, Args...>::type;
 #elif __cplusplus >= 201103L
-using Result = std::result_of<F(Args...)>;
+using ReturnType = typename std::result_of<F(Args...)>::type;
 #else
 #error "c++11 or higher version must be supported"
 #endif
-template <class F, class... Args>
-using ResultType = typename Result<F, Args...>::type;
 
 /// @brief Abstract timer class
 class ITimer : public std::enable_shared_from_this<ITimer>
@@ -125,14 +123,29 @@ class TimerQueue final : public Singleton<TimerQueue>
     ///         will cause a "Broken promise" exception.
     template <class T, class F, class... Args>
     auto AddTimerEx(T &&time, F &&func,
-                    Args &&...args) -> std::future<ResultType<F, Args...>>
+                    Args &&...args) -> std::future<ReturnType<F, Args...>>
     {
-        auto package =
-            std::make_shared<std::packaged_task<ResultType<F, Args...>()>>(
-                std::bind(std::forward<F>(func), std::forward<Args>(args)...));
-        std::future<ResultType<F, Args...>> res = package->get_future();
-        TimerFunc tf = [package](ITimer *) { (*package)(); };
-        AddTimer(std::forward<T>(time), tf);
+        using Rtype = ReturnType<F, Args...>;
+#if __cplusplus >= 202002L // C++20 Perfect forward by "pack init-capture"
+        auto task = [f = std::forward<F>(func),
+                     ... args = std::forward<Args>(args)]() mutable {
+            return std::invoke(f, std::forward<Args>(args)...);
+        };
+#elif __cplusplus >= 201703L // C++17 Perfect forward by std::tuple
+        auto task =
+            [f = std::forward<F>(func),
+             args = std::make_tuple(std::forward<Args>(args)...)]() mutable {
+                return std::apply(std::move(f), std::move(args));
+            };
+#else // C++11 Only copy args... type of rvalue-ref can not passed compiling.
+        auto task = std::bind(
+            std::forward<F>(func), std::forward<Args>(args)...);
+#endif
+        auto pkg =
+            std::make_shared<std::packaged_task<Rtype()>>(std::move(task));
+        std::future<Rtype> res = pkg->get_future();
+        AddTimer(std::forward<T>(time), [pkg](ITimer *) { (*pkg)(); });
+
         return res;
     }
 
