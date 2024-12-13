@@ -23,59 +23,14 @@
 
 #include <set>
 #include <mutex>
-#include <future>
-#include <chrono>
 #include <thread>
-#if __cplusplus >= 201703L
-#include <type_traits>
-#endif
 #include <functional>
 #include <condition_variable>
 #include "singleton.h"
+#include "timer.h"
 
 namespace utils
 {
-/// @brief Forward declaration
-class TimerQueue;
-class ITimer;
-
-using TimerNs = std::chrono::nanoseconds;
-using TimerMs = std::chrono::milliseconds;
-using TimerUs = std::chrono::microseconds;
-using TimerSec = std::chrono::seconds;
-using TimerHandle = std::shared_ptr<ITimer>;
-using TimerClock = std::chrono::steady_clock;
-using TimerFunc = std::function<void(ITimer *)>;
-using TimePoint = std::chrono::steady_clock::time_point;
-
-template <class F, class... Args>
-#if __cplusplus >= 201703L
-using ReturnType = typename std::invoke_result<F, Args...>::type;
-#elif __cplusplus >= 201103L
-using ReturnType = typename std::result_of<F(Args...)>::type;
-#else
-#error "c++11 or higher version must be supported"
-#endif
-
-/// @brief Abstract timer class
-class ITimer : public std::enable_shared_from_this<ITimer>
-{
-  public:
-    /// @brief Callback on time out
-    virtual void TimerCallback() = 0;
-
-    /// @brief Get time point
-    /// @return time point
-    virtual const TimePoint &TimerPoint() const = 0;
-};
-
-/// @brief Comparison for timer sorting.
-struct TimerCompare {
-    bool operator()(const TimerHandle &lhs, const TimerHandle &rhs) const
-    {
-        return lhs->TimerPoint() < rhs->TimerPoint();
-    };
-};
 
 /// @brief Container as a singleton managered all user timers
 class TimerQueue final : public Singleton<TimerQueue>
@@ -88,18 +43,6 @@ class TimerQueue final : public Singleton<TimerQueue>
     /// @return true if successfully.
     bool AddTimer(const TimerHandle &handle);
 
-    /// @brief Add a timer to "TimerQueue".
-    /// @param dtn duration between "NOW" and time-out
-    /// @param func callback on time out.
-    /// @return timer object handle.
-    TimerHandle AddTimer(TimerNs &dtn, TimerFunc func);
-
-    /// @brief Add a timer to "TimerQueue".
-    /// @param tp time point on time out.
-    /// @param func callback on time out.
-    /// @return timer object handle.
-    TimerHandle AddTimer(TimePoint &tp, TimerFunc func);
-
     /// @brief Remove a timer by handle.
     /// @param handle "TimerHandle" object ref.
     /// @return true if success.
@@ -109,45 +52,6 @@ class TimerQueue final : public Singleton<TimerQueue>
     /// @param tp "TimePoint" object ref.
     /// @return ture if success.
     bool RemoveTimer(const TimePoint &tp);
-
-    /// @brief Add a callable object to "TimerQueue"
-    /// @tparam ...Args arguments for callable object
-    /// @tparam T Type of duration or "TimePoint"
-    /// @tparam F Type of callable object
-    /// @param time Duration or "TimePoint"
-    /// @param func Callable object(e.g. function, lambda ...)
-    /// @param ...args Arguments for callable object
-    /// @return future object associated to callable object.
-    ///         Be careful with the future object, if user accesses "future" by
-    ///         "future::get()" after removing the timer by "RemoveTimer", it
-    ///         will cause a "Broken promise" exception.
-    template <class T, class F, class... Args>
-    auto AddTimerEx(T &&time, F &&func,
-                    Args &&...args) -> std::future<ReturnType<F, Args...>>
-    {
-        using Rtype = ReturnType<F, Args...>;
-#if __cplusplus >= 202002L // C++20 Perfect forward by "pack init-capture"
-        auto task = [f = std::forward<F>(func),
-                     ... args = std::forward<Args>(args)]() mutable {
-            return std::invoke(f, std::forward<Args>(args)...);
-        };
-#elif __cplusplus >= 201703L // C++17 Perfect forward by std::tuple
-        auto task =
-            [f = std::forward<F>(func),
-             args = std::make_tuple(std::forward<Args>(args)...)]() mutable {
-                return std::apply(std::move(f), std::move(args));
-            };
-#else // C++11 Only copy args... type of rvalue-ref can not passed compiling.
-        auto task = std::bind(
-            std::forward<F>(func), std::forward<Args>(args)...);
-#endif
-        auto pkg =
-            std::make_shared<std::packaged_task<Rtype()>>(std::move(task));
-        std::future<Rtype> res = pkg->get_future();
-        AddTimer(std::forward<T>(time), [pkg](ITimer *) { (*pkg)(); });
-
-        return res;
-    }
 
   private:
     TimerQueue();

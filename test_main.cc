@@ -30,11 +30,14 @@ using namespace utils;
 
 TimePoint nowtime(const std::string &str)
 {
-    auto now = std::chrono::system_clock::now();
-    auto steady_now = TimerClock::now();
-    std::time_t now_time_t = std::chrono::system_clock::to_time_t(now);
+    using namespace std::chrono;
+    auto now = system_clock::now();
+    auto steady_now = steady_clock::now();
+    std::time_t now_time_t = system_clock::to_time_t(now);
     std::tm *now_tm = std::localtime(&now_time_t);
-    std::cout << str << std::put_time(now_tm, "%H:%M:%S") << std::endl;
+    auto ms = duration_cast<TimerMs>(now.time_since_epoch()) % 1000;
+    std::cout << str << std::put_time(now_tm, "%H:%M:%S.") << std::setw(3)
+              << std::setfill('0') << ms.count() << std::endl;
     return steady_now;
 }
 
@@ -42,7 +45,7 @@ class SampleTimer : public ITimer
 {
   public:
     SampleTimer(int sec)
-        : str_("The time after " + std::to_string(sec) + " seconds: "),
+        : str_("The time after " + std::to_string(sec) + "   seconds: "),
           tp_(std::chrono::steady_clock::now() + std::chrono::seconds(sec))
     {
     }
@@ -55,9 +58,11 @@ class SampleTimer : public ITimer
     TimePoint tp_;
 };
 
-static int InvokeAfter(int sec)
+static float InvokeAfter(float sec)
 {
-    auto str = "The time after " + std::to_string(sec) + " seconds: ";
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << sec;
+    auto str = "The time after " + oss.str() + " seconds: ";
     nowtime(str);
     return sec;
 }
@@ -67,25 +72,21 @@ int main(int argc, char **argv)
     using std::chrono::duration;
     using std::chrono::duration_cast;
 
-    auto cb1 = [](ITimer *timer) { nowtime("The time after 1 second:  "); };
-    auto cb2 = [](ITimer *timer) { nowtime("The time after 2 seconds: "); };
-    auto cb3 = [](ITimer *timer) { nowtime("The time after 3 seconds: "); };
+    auto cb1 = []() { nowtime("The time after 1   second:  "); };
+    auto cb2 = []() { nowtime("The time after 2   seconds: "); };
+    auto cb3 = []() { nowtime("The time after 3   seconds: "); };
 
-    auto tp = nowtime("Current time:             ");
-    TimerNs dtn1 = duration_cast<TimerNs>(TimerSec(1));
-    TimerNs dtn2 = duration_cast<TimerNs>(TimerSec(2));
-    TimerNs dtn3 = duration_cast<TimerNs>(TimerSec(3));
-    TimerHandle hdl = std::make_shared<SampleTimer>(4);
-    TimerNs dtn5 = duration_cast<TimerNs>(TimerSec(5));
-    tp += TimerSec(6);
+    auto tp = nowtime("Current time:               ");
     auto &tq = TimerQueue::GetInstance();
-    auto th1 = tq.AddTimer(dtn1, cb1);
-    auto th2 = tq.AddTimer(dtn2, cb2);
-    auto th3 = tq.AddTimer(dtn3, cb3);
+    tq.AddTimer(MakeTimer(TimerSec(1), cb1));
+    tq.AddTimer(MakeTimer(TimerSec(2), cb2));
+    tq.AddTimer(MakeTimer(TimerSec(3), cb3));
+    tq.AddTimer(MakeTimer<SampleTimer>(4));
+    int ms = 5000;
+    for (; ms < 6000; ms += 100)
+        tq.AddTimer(MakeTimer(TimerMs(ms), InvokeAfter, ms / 1000.0));
+    auto hdl = MakeTimer(TimerMs(ms), InvokeAfter, ms / 1000.0);
     tq.AddTimer(hdl);
-    tq.AddTimerEx(dtn5, &InvokeAfter, 5);
-    auto th6 = tq.AddTimerEx(tp, &InvokeAfter, 6);
-    th6.get();
-    // tq.RemoveTimer(hdl);
+    std::cout << hdl->get_future().get() << " seconds" << std::endl;
     return 0;
 }

@@ -15,32 +15,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#pragma once
 
-#ifndef UTILS_SINGLETON_H
-#define UTILS_SINGLETON_H
+namespace utils
+{
 
-namespace utils {
-
-/// NOTE: thread safe is not considered
-template<typename T>
-class Singleton
+template <typename T> class Singleton
 {
   public:
-    static T& GetInstance()
+    template <typename... Args> static T &GetInstance(Args &&...args)
     {
-        static T instance;
+        static T instance(std::forward<Args>(args)...);
         return instance;
     }
 
-    Singleton(T&&) = delete;
-    Singleton(const T&) = delete;
-    Singleton& operator= (T&&) = delete;
-    Singleton& operator= (const T&) = delete;
+    Singleton(T &&) = delete;
+    Singleton(const T &) = delete;
+    Singleton &operator=(T &&) = delete;
+    Singleton &operator=(const T &) = delete;
 
   protected:
     Singleton() = default;
     virtual ~Singleton() = default;
 };
 
-};
-#endif //UTILS_SINGLETON_H
+}; // namespace utils

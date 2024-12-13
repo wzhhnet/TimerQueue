@@ -24,23 +24,6 @@
 namespace utils
 {
 
-class Timer : public ITimer
-{
-  public:
-    Timer(TimerNs dtn, TimerFunc func)
-        : ITimer(), tp_(TimerClock::now() + dtn), func_(func)
-    {
-    }
-    Timer(TimePoint &tp, TimerFunc func) : ITimer(), tp_(tp), func_(func) {}
-    virtual ~Timer() {}
-    virtual void TimerCallback() override { func_(this); }
-    virtual const TimePoint &TimerPoint() const override { return tp_; };
-
-  private:
-    TimePoint tp_;
-    TimerFunc func_;
-};
-
 TimerQueue::TimerQueue()
     : thread_(new std::thread(&TimerQueue::StartRoutine, this))
 {
@@ -76,27 +59,6 @@ bool TimerQueue::AddTimer(const TimerHandle &handle)
     tq_.emplace(handle);
     cv_.notify_one();
     return true;
-}
-
-TimerHandle TimerQueue::AddTimer(TimePoint &tp, TimerFunc func)
-{
-    if (tp < TimerClock::now()) {
-        return TimerHandle();
-    }
-    auto handle = std::make_shared<Timer>(tp, func);
-    std::unique_lock<std::mutex> lck(mtx_);
-    tq_.emplace(handle);
-    cv_.notify_one();
-    return handle;
-}
-
-TimerHandle TimerQueue::AddTimer(TimerNs &dtn, TimerFunc func)
-{
-    auto handle = std::make_shared<Timer>(dtn, func);
-    std::unique_lock<std::mutex> lck(mtx_);
-    tq_.emplace(handle);
-    cv_.notify_one();
-    return handle;
 }
 
 bool TimerQueue::RemoveTimer(const TimerHandle &handle)
