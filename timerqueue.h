@@ -48,11 +48,6 @@ class TimerQueue final : public Singleton<TimerQueue>
     /// @return true if success.
     bool RemoveTimer(const TimerHandle &handle);
 
-    /// @brief Remove all timers which "TimePoint" equals to tp.
-    /// @param tp "TimePoint" object ref.
-    /// @return ture if success.
-    bool RemoveTimer(const TimePoint &tp);
-
   private:
     TimerQueue();
     virtual ~TimerQueue();

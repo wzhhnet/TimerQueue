@@ -3,7 +3,7 @@ project(timerqueue LANGUAGES C CXX)
 
 option (ENABLE_TEST "option for test" OFF)
 
-#set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 add_library(${PROJECT_NAME} STATIC timerqueue.cc)
 
 if (${ENABLE_TEST})

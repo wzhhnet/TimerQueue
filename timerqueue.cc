@@ -18,7 +18,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 #include "timerqueue.h"
 
 namespace utils
@@ -72,21 +71,6 @@ bool TimerQueue::RemoveTimer(const TimerHandle &handle)
     return true;
 }
 
-bool TimerQueue::RemoveTimer(const TimePoint &tp)
-{
-    bool rc = false;
-    std::unique_lock<std::mutex> lck(mtx_);
-    auto it = tq_.begin();
-    while (it != tq_.end()) {
-        if (tp == (*it)->TimerPoint()) {
-            it = tq_.erase(it);
-            rc = true;
-        } else
-            it++;
-    }
-    return rc;
-}
-
 void TimerQueue::StartRoutine() { while (ThreadLoop()); }
 
 bool TimerQueue::ThreadLoop()
@@ -101,24 +85,23 @@ bool TimerQueue::ThreadLoop()
         if (tq_.empty()) {
             cv_.wait(lck);
             return true;
-        } else {
-            auto it = tq_.begin();
-            if (*it == nullptr) {
-                tq_.erase(it);
-                return true;
-            }
-            auto st = cv_.wait_until(lck, (*it)->TimerPoint());
-            if (st == std::cv_status::timeout) {
-                hdl = *it;
-                tq_.erase(it);
-            } else {
-                // AddTimer or quit invoked
-                return true;
-            }
         }
+        auto it = tq_.begin();
+        if (*it == nullptr) {
+            tq_.erase(it);
+            return true;
+        }
+        auto st = cv_.wait_until(lck, (*it)->TimerPoint());
+        if (st != std::cv_status::timeout) {
+            return true; // AddTimer or quit invoked
+        }
+        /// tp timeout
+        hdl = *it;
+        tq_.erase(it);
     }
     if (hdl != nullptr) {
-        hdl->TimerCallback();
+        auto tp = hdl->TimerCallback();
+        if (tp > TimerClock::now()) AddTimer(hdl);
     }
     return true;
 }

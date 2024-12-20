@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <future>
 #include <chrono>
 
 namespace utils
@@ -36,21 +35,14 @@ using TimerHandle = std::shared_ptr<ITimer>;
 using TimerClock = std::chrono::steady_clock;
 using TimePoint = std::chrono::steady_clock::time_point;
 
-template <class F, class... Args>
-#if __cplusplus >= 201703L
-using ReturnType = typename std::invoke_result<F, Args...>::type;
-#elif __cplusplus >= 201103L
-using ReturnType = typename std::result_of<F(Args...)>::type;
-#else
-#error "c++11 or higher version must be supported"
-#endif
-
 /// @brief Abstract timer class
 class ITimer
 {
   public:
     /// @brief Callback on time out
-    virtual void TimerCallback() = 0;
+    /// @return next time-out point for cycle timer
+    ///         "NOW" for no-cycle timer
+    virtual TimePoint TimerCallback() = 0;
 
     /// @brief Get time point
     /// @return time point
@@ -66,8 +58,7 @@ struct TimerCompare {
 };
 
 /// @brief An implemented class of ITimer
-/// @tparam R type of future result
-template <class R = void> class Timer final : public ITimer
+class Timer final : public ITimer
 {
   public:
     /// @brief Timer constructor
@@ -75,53 +66,77 @@ template <class R = void> class Timer final : public ITimer
     /// @tparam F type of callable object
     /// @tparam ...Args type of parameters for F
     /// @param duration time duration
+    /// @param max maximum cyclic times, at least 1 time
     /// @param func callable object
     /// @param ...args parameters for func
     template <class T, class F, class... Args>
-    Timer(T &&duration, F &&func, Args &&...args)
+    Timer(size_t max, T &&duration, F &&func, Args &&...args)
     {
-#if __cplusplus >= 202002L // C++20 Perfect forward by "pack init-capture"
-        auto task = [f = std::forward<F>(func),
-                     ... args = std::forward<Args>(args)]() mutable {
-            return std::invoke(f, std::forward<Args>(args)...);
-        };
-#elif __cplusplus >= 201703L // C++17 Perfect forward by std::tuple
-        auto task =
-            [f = std::forward<F>(func),
-             args = std::make_tuple(std::forward<Args>(args)...)]() mutable {
-                return std::apply(std::move(f), std::move(args));
-            };
-#else // C++11 Only copy args... type of rvalue-ref can not passed compiling.
-        auto task =
-            std::bind(std::forward<F>(func), std::forward<Args>(args)...);
-#endif
-        task_ = std::packaged_task<R()>(std::move(task));
-        tp_ = TimerClock::now() + std::forward<T>(duration);
+        Bind(std::forward<F>(func), std::forward<Args>(args)...);
+        max_count_ = max;
+        duration_ =
+            std::chrono::duration_cast<TimerNs>(std::forward<T>(duration));
+        tp_ = TimerClock::now() + duration_;
     }
+
     /// @brief Callback override
-    virtual void TimerCallback() override { task_(); }
+    /// @return next time-out point for cycle timer
+    ///         "NOW" for no-cycle timer
+    virtual TimePoint TimerCallback() override
+    {
+        {
+            std::unique_lock<std::mutex> lck(mtx_);
+            task_();
+        }
+        if (++count_ < max_count_) {
+            tp_ = TimerClock::now() + duration_;
+        }
+        return tp_;
+    }
 
     /// @brief TimerPoint override
     /// @return time point
     virtual const TimePoint &TimerPoint() const override { return tp_; };
 
-    /// @brief get a future
-    /// @return future object associated to callable object.
-    ///         Be careful with the future object, if user accesses "future" by
-    ///         "future::get()" after removing the timer by "RemoveTimer", it
-    ///         will cause a "Broken promise" exception.
-    std::future<R> get_future() { return task_.get_future(); }
+  private:
+    /// @brief bind function and arguments to task
+    /// @tparam F callable type
+    /// @tparam ...Args type of function's arguments
+    /// @param func ref of callable object
+    /// @param ...args ref of arguments
+    template <class F, class... Args> void Bind(F &&func, Args &&...args)
+    {
+        std::unique_lock<std::mutex> lck(mtx_);
+#if __cplusplus >= 202002L // C++20 Perfect forward by "pack init-capture"
+        task_ = [f = std::forward<F>(func),
+                 ... args = std::forward<Args>(args)]() mutable {
+            std::invoke(f, std::forward<Args>(args)...);
+        };
+#elif __cplusplus >= 201703L // C++17 Perfect forward by std::tuple
+        task_ = [f = std::forward<F>(func),
+                 args =
+                     std::make_tuple(std::forward<Args>(args)...)]() mutable {
+            std::apply(std::move(f), std::move(args));
+        };
+#else // C++11 Only copy args... type of rvalue-ref can not passed compiling.
+       task_ = std::bind(std::forward<F>(func), std::forward<Args>(args)...);
+#endif
+    }
 
   private:
+    size_t count_;
+    size_t max_count_;
+    TimerNs duration_;
     TimePoint tp_;
-    std::packaged_task<R()> task_;
+    std::mutex mtx_;
+    std::function<void()> task_;
 };
 
 /// @brief Construct an object of derived class of ITimer
 /// @tparam T type of derived class of ITimer
-/// @tparam ...Args type of arguments for constructor
-/// @param ...args arguments for constructor
-/// @return TimerHandle with an object of derived class of ITimer
+/// @tparam ...Args type of arguments
+/// @param ...args arguments of constructor
+/// @return timer handle
 template <class T, class... Args> std::shared_ptr<T> MakeTimer(Args &&...args)
 {
     return std::make_shared<T>(std::forward<Args>(args)...);
@@ -130,18 +145,18 @@ template <class T, class... Args> std::shared_ptr<T> MakeTimer(Args &&...args)
 /// @brief Construct an object of Timer
 /// @tparam T type of time duiration
 /// @tparam F type of callable object
-/// @tparam ...Args type of parameters for F
+/// @tparam ...Args type of parameters
+/// @param max maximum cyclic times, at least 1 time
 /// @param time duration
 /// @param func callable object
-/// @param ...args parameters for func
-/// @return TimerHandle with an object of Timer
+/// @param ...args arguments
+/// @return timer handle
 template <class T, class F, class... Args>
-std::shared_ptr<Timer<ReturnType<F, Args...>>> MakeTimer(T &&time, F &&func,
-                                                         Args &&...args)
+std::shared_ptr<Timer> MakeTimer(T &&time, size_t max, F &&func, Args &&...args)
 {
-    return std::make_shared<Timer<ReturnType<F, Args...>>>(
-        std::forward<T>(time), std::forward<F>(func),
-        std::forward<Args>(args)...);
+    return std::make_shared<Timer>(max, std::forward<T>(time),
+                                   std::forward<F>(func),
+                                   std::forward<Args>(args)...);
 }
 
 } // namespace utils
